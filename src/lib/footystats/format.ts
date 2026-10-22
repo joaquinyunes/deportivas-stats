@@ -10,5 +10,5 @@ export function fechaLarga(iso: string): string {
 }
 
 export function urlSegura(url: string | null): string | null {
-  return url && /^https?:\/\//i.test(url) ? url : null;
+  return url && /^https?:\/\//i.test(url) ? url : null; // parse.ts ya completa los links relativos
 }

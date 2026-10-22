@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { claveCuota, clavePct, resolverColumnas } from "./columns";
 import { parseFechaHora } from "./dates";
@@ -79,7 +81,11 @@ describe("inferirMuestra", () => {
     expect(inferirMuestra([0, 100, 0])).toBe(1);
   });
   it("sin denominador chico que explique la fila devuelve null", () => {
-    expect(inferirMuestra([43, 52, 61, 17])).toBeNull();
+    expect(inferirMuestra([43, 52, 61, 17], 20)).toBeNull();
+  });
+  it("tolera una columna de otra base (fila real: 93, 80, 73, 60 son /15, 19 no)", () => {
+    expect(inferirMuestra([93, 80, 73, 60, 19])).toBe(15);
+    expect(inferirMuestra([93, 80, 73, 60, 19], 40, 1)).not.toBe(15);
   });
 });
 
@@ -333,7 +339,7 @@ describe("tablero", () => {
   });
   it("agrupar por mercado crea todas las secciones, incluso vacias", () => {
     const s = seccionar(filasDe(evaluar(matches, CONFIG_DEFAULT), { ...FILTROS_DEFAULT, prob: 50 }), "mercado");
-    expect(s.map((x) => x.id)).toEqual(["goles", "btts", "corners", "resultado"]);
+    expect(s.map((x) => x.id)).toEqual(["goles", "btts", "corners", "resultado", "primer", "segundo"]);
     expect(s.find((x) => x.id === "corners")?.filas).toEqual([]);
   });
   it("dentro de cada seccion, mejores primero", () => {
@@ -482,5 +488,75 @@ describe("rendimiento: picks sin dato", () => {
     expect(registros).toHaveLength(0);
     expect(sinDato).toBe(picks.length);
     expect(pendientes).toBe(0);
+  });
+});
+
+describe("formato real de FootyStats (fixtures/formato-real.csv, 4 filas de un CSV real)", () => {
+  const real = parseCsv(readFileSync(join(__dirname, "fixtures/formato-real.csv"), "utf8"));
+  const porJugar = real.matches.find((m) => m.estado === "incomplete" && !m.virtual)!;
+
+  it("reconoce todas las columnas clave y no avisa faltantes", () => {
+    expect(real.resumen.columnasFaltantes).toEqual([]);
+    expect(real.resumen.columnasCuotas).toBeGreaterThanOrEqual(35);
+    expect(real.resumen.columnasPct).toBe(13);
+  });
+  it("separa por jugar, jugado, virtual y no jugable", () => {
+    expect(real.resumen).toMatchObject({ incompletos: 1, jugados: 1, virtuales: 1 });
+    expect(real.resumen.descartadas[0].motivo).toBe("Estado no jugable (suspended)");
+  });
+  it("lee la fecha de date_unix y completa el link relativo", () => {
+    expect(porJugar.kickoff).toMatch(/^2026-10-22T/);
+    expect(porJugar.url).toMatch(/^https:\/\/footystats\.org\//);
+  });
+  it("lee el resultado final (Result - Home Team Goals) y los corners del partido jugado", () => {
+    const jugado = real.matches.find((m) => m.estado === "complete" && !m.virtual)!;
+    expect(jugado.resultado).not.toBeNull();
+    expect(jugado.resultado?.corners).not.toBeNull();
+  });
+  it("evalua goles, ambos marcan, corners, tiempos y resultado, con cuotas reales de doble oportunidad", () => {
+    const grupos = new Set(evaluarPartido(porJugar).map((m) => m.grupo));
+    for (const g of ["goles", "btts", "corners", "resultado", "primer", "segundo"]) expect(grupos).toContain(g);
+    const dc = evaluarPartido(porJugar).find((m) => m.id === "resultado|1X")!;
+    expect(dc.cuota).not.toBeNull();
+    const dnb = evaluarPartido(porJugar).filter((m) => m.id.startsWith("resultado|dnb"));
+    expect(dnb[0].pMercado + dnb[1].pMercado).toBeCloseTo(1, 10);
+  });
+  it("las odds N/A no generan mercados", () => {
+    const r = parseCsv("Home Team,Away Team,Over25 Average,Odds_Over25,Odds_Under25\nA,B,60,N/A,N/A");
+    expect(r.matches[0].odds).toEqual({});
+    expect(evaluarPartido(r.matches[0])).toEqual([]);
+  });
+});
+
+describe("cuotas reales de doble oportunidad y empate anula", () => {
+  it("la doble oportunidad con cuotas propias reparte el margen (suma de las tres = 2)", () => {
+    const m = evaluarPartido(partido({ odds: { ...partido().odds, "dc:1X": 1.25, "dc:X2": 1.6, "dc:12": 1.3 } }));
+    const dc = ["1X", "X2", "12"].map((k) => m.find((x) => x.id === `resultado|${k}`)!);
+    expect(dc.map((x) => x.cuota)).toEqual([1.25, 1.6, 1.3]);
+    expect(dc.reduce((a, x) => a + x.pMercado, 0)).toBeCloseTo(2, 10);
+  });
+});
+
+describe("cuotas de doble oportunidad parciales (como en el CSV real)", () => {
+  it("con solo 1X y X2: muestra esas cuotas y deriva la probabilidad de la casa del 1X2", () => {
+    const base = evaluarPartido(partido());
+    const m = evaluarPartido(partido({ odds: { ...partido().odds, "dc:1X": 1.21, "dc:X2": 1.11 } }));
+    const get = (arr: typeof m, id: string) => arr.find((x) => x.id === id)!;
+    expect(get(m, "resultado|1X").cuota).toBe(1.21);
+    expect(get(m, "resultado|12").cuota).toBeNull();
+    expect(get(m, "resultado|1X").pMercado).toBeCloseTo(get(base, "resultado|1X").pMercado, 10);
+  });
+});
+
+describe("primer y segundo tiempo", () => {
+  it("usan Over05/15 FHG y 2HG con sus cuotas y no se guardan como picks (no hay marcador del descanso)", () => {
+    const m = partido({
+      pct: { h1over05: 70, h1over15: 30, h2over05: 80 },
+      odds: { "h1:over:0.5": 1.4, "h1:under:0.5": 2.9, "h2:over:0.5": 1.3, "h2:under:0.5": 3.4 },
+    });
+    expect(evaluarPartido(m).map((x) => x.id)).toEqual([
+      "primer|over|0.5", "primer|under|0.5", "segundo|over|0.5", "segundo|under|0.5",
+    ]);
+    expect(snapshotPicks([m], CONFIG_DEFAULT).some((p) => p.m.startsWith("primer") || p.m.startsWith("segundo"))).toBe(false);
   });
 });

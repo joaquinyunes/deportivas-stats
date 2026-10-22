@@ -47,7 +47,8 @@ export function snapshotPicks(matches: Parseado["matches"], config: Config): Pic
   for (const m of matches) {
     if (m.estado !== "incomplete" || m.virtual) continue;
     for (const mk of evaluarPartido(m, config)) {
-      if (mk.pAjustada < 0.5) continue;
+      // El CSV no trae el marcador del descanso: primer/segundo tiempo no se pueden medir despues.
+      if (mk.pAjustada < 0.5 || mk.grupo === "primer" || mk.grupo === "segundo") continue;
       out.push({ k: m.key, d: m.dayKey, m: mk.id, p: round(mk.pAjustada), pm: round(mk.pMercado), n: mk.muestra, l: m.liga });
     }
   }

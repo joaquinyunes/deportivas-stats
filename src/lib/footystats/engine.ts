@@ -54,21 +54,23 @@ export function poisson1x2(xgLocal: number, xgVisitante: number, maxGoles = 10):
 
 /**
  * Los % del CSV salen de la temporada, asi que son fracciones k/n con n chico. Busca el
- * denominador mas chico que explica TODAS las columnas a la vez (ej. 43 y 86 -> 7).
- * null = ninguno hasta maxN explica la fila (muestra grande o equipos con muestras distintas).
- * maxN = 20 porque con topes mas altos un denominador grande "explica" cualquier fila por azar.
+ * denominador mas chico que explica casi todas las columnas a la vez (ej. 43 y 86 -> 7).
+ *
+ * Cada % es el promedio de local y visitante y a veces mezcla bases distintas (en una fila
+ * real: 93, 80, 73 y 60 son /15, pero 19 no), asi que se exige que cuadre `minFit` de las
+ * columnas, no todas. Con ruido puro esto nunca devuelve un n <= 10, y con tope 40 deja de
+ * quedar sin inferir mas de la mitad de los partidos. El valor es una estimacion: puede ser
+ * la muestra por equipo o el doble (promedio de dos equipos con la misma muestra).
+ * null = ningun denominador hasta maxN lo explica.
  */
-export function inferirMuestra(pcts: number[], maxN = 20): number | null {
+export function inferirMuestra(pcts: number[], maxN = 40, minFit = 0.8): number | null {
   const vals = pcts.filter((v) => Number.isFinite(v));
   if (!vals.length) return null;
   const hayDecimales = vals.some((v) => Math.abs(v - Math.round(v)) > 1e-6);
   const tol = hayDecimales ? 0.06 : 0.51;
   for (let n = 1; n <= maxN; n++) {
-    const ok = vals.every((v) => {
-      const k = Math.round((v * n) / 100);
-      return Math.abs((100 * k) / n - v) <= tol;
-    });
-    if (ok) return n;
+    const ok = vals.filter((v) => Math.abs((100 * Math.round((v * n) / 100)) / n - v) <= tol).length;
+    if (ok / vals.length >= minFit) return n;
   }
   return null;
 }
@@ -86,6 +88,9 @@ export function calcularVentaja(pAjustada: number, pMercado: number): number {
 
 const LINEAS_GOLES = [0.5, 1.5, 2.5, 3.5, 4.5];
 const LINEAS_CORNERS = [7.5, 8.5, 9.5, 10.5, 11.5];
+// Por tiempo el CSV trae % historicos solo para 0.5 y 1.5 (las cuotas llegan hasta 2.5).
+const LINEAS_TIEMPO = [0.5, 1.5];
+const clave2 = (linea: number) => String(linea * 10).padStart(2, "0");
 
 /** Valor del CSV (0-100) -> 0-1, o undefined. */
 function frac(pcts: Pcts, key: string): number | undefined {
@@ -118,7 +123,7 @@ export function evaluarPartido(m: CsvMatch, config: Config = CONFIG_DEFAULT): Me
 
   // Totales (goles y corners): hace falta el par over/under y la columna historica.
   const totales = (
-    scope: "ft" | "corners",
+    scope: "ft" | "corners" | "h1" | "h2",
     lineas: number[],
     histOver: (linea: number) => number | undefined,
     grupo: Mercado["grupo"],
@@ -138,11 +143,13 @@ export function evaluarPartido(m: CsvMatch, config: Config = CONFIG_DEFAULT): Me
   totales(
     "ft",
     LINEAS_GOLES,
-    (l) => (config.golesPoisson && lambdaTotal ? poissonOver(lambdaTotal, l) : frac(m.pct, `over${String(l * 10).padStart(2, "0")}`)),
+    (l) => (config.golesPoisson && lambdaTotal ? poissonOver(lambdaTotal, l) : frac(m.pct, `over${clave2(l)}`)),
     "goles",
     "goles",
   );
   totales("corners", LINEAS_CORNERS, (l) => frac(m.pct, `c${l * 10}`), "corners", "córners");
+  totales("h1", LINEAS_TIEMPO, (l) => frac(m.pct, `h1over${clave2(l)}`), "primer", "goles en el 1.º tiempo");
+  totales("h2", LINEAS_TIEMPO, (l) => frac(m.pct, `h2over${clave2(l)}`), "segundo", "goles en el 2.º tiempo");
 
   // Ambos marcan
   const by = m.odds["btts:yes"];
@@ -169,11 +176,28 @@ export function evaluarPartido(m: CsvMatch, config: Config = CONFIG_DEFAULT): Me
     push("resultado|1", "resultado", `Gana ${L}`, c1, h.local, m1);
     push("resultado|X", "resultado", "Empate", cx, h.empate, mx);
     push("resultado|2", "resultado", `Gana ${V}`, c2, h.visitante, m2);
-    push("resultado|1X", "resultado", `${L} o empate`, null, h.local + h.empate, m1 + mx);
-    push("resultado|X2", "resultado", `${V} o empate`, null, h.visitante + h.empate, m2 + mx);
-    push("resultado|12", "resultado", `${L} o ${V} (sin empate)`, null, h.local + h.visitante, m1 + m2);
-    push("resultado|dnb1", "resultado", `Empate anula: ${L}`, null, h.local / (h.local + h.visitante), m1 / (m1 + m2));
-    push("resultado|dnb2", "resultado", `Empate anula: ${V}`, null, h.visitante / (h.local + h.visitante), m2 / (m1 + m2));
+
+    // Doble oportunidad y empate-anula. La cuota real se muestra cuando el CSV la trae (suele
+    // venir incompleta: hay filas con 1X y X2 pero 12 en N/A). La probabilidad de la casa sale
+    // de repartir el margen de las cuotas reales solo si estan todas; si no, se deriva del 1X2.
+    const d1 = m.odds["dc:1X"];
+    const dx = m.odds["dc:X2"];
+    const d12 = m.odds["dc:12"];
+    const dc: [string, string, number, number, number | undefined][] = [
+      ["1X", `${L} o empate`, h.local + h.empate, m1 + mx, d1],
+      ["X2", `${V} o empate`, h.visitante + h.empate, m2 + mx, dx],
+      ["12", `${L} o ${V} (sin empate)`, h.local + h.visitante, m1 + m2, d12],
+    ];
+    // Tres opciones que se solapan: las implicitas suman ~2, no 1.
+    const sumaDc = d1 && dx && d12 ? 1 / d1 + 1 / dx + 1 / d12 : null;
+    for (const [id, etiqueta, pH, pDerivada, cuota] of dc) {
+      push(`resultado|${id}`, "resultado", etiqueta, cuota ?? null, pH, sumaDc && cuota ? (2 * (1 / cuota)) / sumaDc : pDerivada);
+    }
+    const n1 = m.odds["dnb:1"];
+    const n2 = m.odds["dnb:2"];
+    const dnb = n1 && n2 ? devig(n1, n2) : { a: m1 / (m1 + m2), b: m2 / (m1 + m2) };
+    push("resultado|dnb1", "resultado", `Empate anula: ${L}`, n1 ?? null, h.local / (h.local + h.visitante), dnb.a);
+    push("resultado|dnb2", "resultado", `Empate anula: ${V}`, n2 ?? null, h.visitante / (h.local + h.visitante), dnb.b);
   }
 
   return out;

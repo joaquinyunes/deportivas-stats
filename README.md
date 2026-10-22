@@ -26,8 +26,10 @@ navegador**: el archivo no se sube a ningun servidor y los dias se guardan en `l
 4. `calcularVentaja()`: ajustada menos mercado, en puntos porcentuales.
 
 El tamano de muestra no viene en el archivo: `inferirMuestra()` busca el denominador mas chico
-(hasta 20) que explica todos los porcentajes de la fila a la vez (43 y 86 -> 7). Si ninguno
-explica la fila queda `?` y se usa una muestra efectiva de 10.
+(hasta 40) que explica el 80% de los porcentajes de la fila a la vez (43 y 86 -> 7); se tolera
+una columna de cada cinco porque el CSV mezcla bases (promedio de local y visitante). Es una
+estimacion: puede ser la muestra por equipo o el doble. Si ninguno explica la fila queda `?` y se
+usa una muestra efectiva de 10.
 
 Se omiten (no se estiman) los mercados sin las dos cuotas del par. Tarjetas es una seccion
 informativa: el CSV trae el promedio pero no cuotas. El futbol virtual se detecta por el nombre

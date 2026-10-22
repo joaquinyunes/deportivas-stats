@@ -9,7 +9,7 @@ import type { CsvMatch, Estado, Odds, Pcts, ResumenSubida } from "./types";
 const VIRTUAL = /e-?soccer|virtual|cyber|volta|gg league|battle\s*-\s*\d+\s*min/i;
 
 /** Claves de cuota que usa el motor; el resto (primer/segundo tiempo...) no se guarda. */
-const CUOTA_USADA = /^(ft|corners|btts|1x2):/;
+const CUOTA_USADA = /^(ft|h1|h2|corners|btts|1x2|dc|dnb):/;
 
 type Fila = Record<string, string | undefined>;
 
@@ -55,6 +55,19 @@ function kickoffDe(f: Fila, map: ColumnMap): string | null {
 function diaLocal(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** FootyStats exporta el link relativo ("/spain/..."). */
+function urlAbsoluta(u: string): string | null {
+  if (!u) return null;
+  return u.startsWith("/") ? `https://footystats.org${u}` : u;
+}
+
+/** Los % de goles y de cada tiempo comparten base; los de corners no (vienen en 0 si faltan). */
+function pctsDeGoles(pct: Pcts): number[] {
+  return Object.entries(pct)
+    .filter(([k, v]) => v !== undefined && /^(over\d\d|btts|h[12]over\d\d)$/.test(k))
+    .map(([, v]) => v as number);
 }
 
 function modaFecha(matches: CsvMatch[]): string {
@@ -153,13 +166,13 @@ export function parseCsv(contenido: string): Parseado {
       virtual: esVirtual,
       xgLocal: positivo(xgL),
       xgVisitante: positivo(xgV),
-      muestra: inferirMuestra(Object.values(pct).filter((v): v is number => v !== undefined)),
+      muestra: inferirMuestra(pctsDeGoles(pct)),
       pct,
       odds,
       promGoles: positivo(num(f[map.promGoles ?? ""])),
       promCorners: positivo(num(f[map.promCorners ?? ""])),
       promTarjetas: positivo(num(f[map.promTarjetas ?? ""])),
-      url: texto(f, map.url) || null,
+      url: urlAbsoluta(texto(f, map.url)),
       resultado,
     });
   }

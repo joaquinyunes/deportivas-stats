@@ -24,7 +24,7 @@ export interface ColumnMap {
   cornersTotal?: string;
   cornersLocal?: string;
   cornersVisitante?: string;
-  /** clave de % historico (over25, btts, c95) -> encabezado */
+  /** clave de % historico (over25, btts, c95, h1over05) -> encabezado */
   pct: Record<string, string>;
   /** clave de cuota (ft:over:2.5, btts:yes, 1x2:X, corners:under:9.5) -> encabezado */
   odds: Record<string, string>;
@@ -37,7 +37,7 @@ const SIMPLES: [keyof Omit<ColumnMap, "pct" | "odds">, RegExp][] = [
   ["visitante", /^(awayteam|awayteamname|away)$/],
   ["estado", /^(matchstatus|status)$/],
   ["url", /^(matchfootystatsurl|footystatsurl|matchurl|url|link)$/],
-  ["timestamp", /^(timestamp|unixtimestamp|datetimestamp|matchtimestamp|kickofftimestamp)$/],
+  ["timestamp", /^(timestamp|unixtimestamp|dateunix|datetimestamp|matchtimestamp|kickofftimestamp)$/],
   ["fechaHora", /^(dateutc|datetimeutc|dategmt|datetimegmt|kickoffutc|kickoffdatetime|datetime|utcdate)$/],
   ["fecha", /^(date|matchdate|kickoffdate)$/],
   ["hora", /^(time|kickofftime|matchtime|timeutc|timegmt|ko)$/],
@@ -46,8 +46,8 @@ const SIMPLES: [keyof Omit<ColumnMap, "pct" | "odds">, RegExp][] = [
   ["promGoles", /^averagegoals$/],
   ["promCorners", /^averagecorners$/],
   ["promTarjetas", /^averagecards$/],
-  ["golesLocal", /^home(?:team)?(?:goals?|goalcount|score)$/],
-  ["golesVisitante", /^away(?:team)?(?:goals?|goalcount|score)$/],
+  ["golesLocal", /^(?:result)?home(?:team)?(?:goals?|goalcount|score)$/],
+  ["golesVisitante", /^(?:result)?away(?:team)?(?:goals?|goalcount|score)$/],
   ["cornersTotal", /^(?:total)?corners(?:total|count)?$/],
   ["cornersLocal", /^home(?:team)?corner(?:s|count)$/],
   ["cornersVisitante", /^away(?:team)?corner(?:s|count)$/],
@@ -63,6 +63,8 @@ export function claveCuota(h: string): string | null {
   if ((m = h.match(/^odds(?:draw|x)$/))) return "1x2:X";
   if ((m = h.match(/^odds(?:away(?:win)?|2)$/))) return "1x2:2";
   if ((m = h.match(/^odds(?:btts|bothteamstoscore)(yes|no)$/))) return `btts:${m[1]}`;
+  if ((m = h.match(/^odds(?:doublechance|dc)(1x|x2|12)$/))) return `dc:${m[1].toUpperCase()}`;
+  if ((m = h.match(/^odds(?:drawnobet|dnb)([12])$/))) return `dnb:${m[1]}`;
   if (h === "oddsgg") return "btts:yes";
   if (h === "oddsng") return "btts:no";
   if ((m = h.match(/^odds(?:corners?|crn)(over|under)(\d{2,3})$/)) || (m = h.match(/^odds(over|under)(\d{2,3})corners?$/)))
@@ -80,6 +82,9 @@ export function clavePct(h: string): string | null {
   let m: RegExpMatchArray | null;
   if ((m = h.match(/^over(05|15|25|35|45|55)(?:average|avg|percentage|percent|pct)$/))) return `over${m[1]}`;
   if (/^btts(?:average|avg|percentage|percent|pct)$/.test(h)) return "btts";
+  // Primer tiempo ("Over05 FHG HT Average") y segundo tiempo ("Over05 2HG Average").
+  if ((m = h.match(/^over(05|15|25)fhg(?:ht)?(?:average|avg|percentage|pct)$/))) return `h1over${m[1]}`;
+  if ((m = h.match(/^over(05|15|25)2hg(?:average|avg|percentage|pct)$/))) return `h2over${m[1]}`;
   if ((m = h.match(/^averageover(\d{2,3})corners$/)) || (m = h.match(/^over(\d{2,3})corners(?:average|avg|percentage|pct)?$/)))
     return `c${m[1]}`;
   return null;

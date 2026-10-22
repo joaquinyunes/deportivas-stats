@@ -3,13 +3,15 @@
 export type Estado = "incomplete" | "complete" | "otro";
 
 /** Secciones del tablero. "tarjetas" es informativa: el CSV no trae cuotas de tarjetas. */
-export type Grupo = "goles" | "btts" | "corners" | "resultado";
+export type Grupo = "goles" | "btts" | "corners" | "resultado" | "primer" | "segundo";
 
 export const GRUPOS: { id: Grupo; label: string }[] = [
   { id: "goles", label: "Goles" },
   { id: "btts", label: "Ambos marcan" },
   { id: "corners", label: "Córners" },
   { id: "resultado", label: "Resultado" },
+  { id: "primer", label: "Primer tiempo" },
+  { id: "segundo", label: "Segundo tiempo" },
 ];
 
 /** Porcentajes historicos (0-100) por clave: over05..over45, btts, c85, c95, c105. */
