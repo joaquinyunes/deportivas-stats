@@ -4,6 +4,48 @@ Analisis tipo FootyStats sobre los ultimos 10 partidos de cada equipo, por depor
 Calcula promedios (goles, corners, tarjetas, remates, puntos por cuarto, carreras),
 el arbitro asignado y una proyeccion del partido del dia.
 
+## Analizador de CSV de FootyStats (`/csv`)
+
+Subis el CSV diario de FootyStats y te devuelve, ordenado por hora y por probabilidad, que es lo
+mas probable que pase hoy, con el tamano de muestra al lado de cada numero. **Todo corre en el
+navegador**: el archivo no se sube a ningun servidor y los dias se guardan en `localStorage`
+(hasta 10 dias).
+
+- `/csv` — subir, tablero con filtros, detalle del partido (clic en el nombre).
+- `/csv/rendimiento` — cruza las predicciones guardadas con los resultados de los CSV siguientes:
+  acierto real vs esperado por rango de probabilidad, mercado y liga.
+- Los filtros viven en la URL: `?muestra=7&prob=80&agrupar=mercado&grandes=1`.
+- Sin CSV a mano: botones de ejemplo (datos **inventados**, `npm run ejemplo` los regenera).
+
+### Motor (`src/lib/footystats/engine.ts`, funciones puras)
+
+1. `devig()`: saca el margen de la casa con el par de cuotas opuestas (3 vias para 1X2).
+2. Probabilidad historica: la columna `OverNN Average` / `BTTS Average` / `Average Over N Corners`
+   del CSV; para 1X2, Poisson con el Pre-Match xG (doble oportunidad y empate-anula salen de ahi).
+3. `ajustarPorMuestra()`: `n/(n+K) * hist + K/(n+K) * mercado`, K configurable (default 5).
+4. `calcularVentaja()`: ajustada menos mercado, en puntos porcentuales.
+
+El tamano de muestra no viene en el archivo: `inferirMuestra()` busca el denominador mas chico
+(hasta 20) que explica todos los porcentajes de la fila a la vez (43 y 86 -> 7). Si ninguno
+explica la fila queda `?` y se usa una muestra efectiva de 10.
+
+Se omiten (no se estiman) los mercados sin las dos cuotas del par. Tarjetas es una seccion
+informativa: el CSV trae el promedio pero no cuotas. El futbol virtual se detecta por el nombre
+de la liga y queda oculto por defecto.
+
+### Columnas
+
+Se reconocen por patron, no por nombre exacto (`src/lib/footystats/columns.ts`): `Over25 Average`,
+`Odds_Over25`, `Odds_Over_2.5`, `Home Team Pre-Match xG`, `Match Status`... Al subir, el resumen
+avisa que columnas no encontro. **Los nombres se dedujeron de la descripcion del CSV, no de un
+archivo real**: si alguno no se reconoce, se suma el patron ahi (hay tests en `footystats.test.ts`).
+
+### Pendiente
+
+Postgres/Prisma (fase 4 "de verdad": historial entre dispositivos), mercados de primer/segundo
+tiempo (el CSV no trae % historicos para esas lineas), ventana de los ultimos 7 partidos y
+enfrentamientos directos (necesitan semanas de CSVs acumulados).
+
 ## Stack
 
 - Next.js 15 (App Router) + TypeScript estricto + Tailwind
